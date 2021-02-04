@@ -433,7 +433,7 @@ def get_univariate_plots( data, target_col,features_list=0, bins=10, data_test=0
 
     has_test = type(data_test) == pd.core.frame.DataFrame
 
-
+    bins_ret = pd.DataFrame()
     for i in range(len(features_list)):
         cols = features_list[i]
         if cols != target_col and data[cols].dtype == "O":
@@ -442,7 +442,7 @@ def get_univariate_plots( data, target_col,features_list=0, bins=10, data_test=0
                 + " is categorical. Categorical features not supported yet."
             )
         elif cols != target_col and data[cols].dtype != "O":
-            univariate_plotter(
+            grouped_ret = univariate_plotter(
                 xlsx=xlsx,
                 feature=cols,
                 data=data,
@@ -455,18 +455,77 @@ def get_univariate_plots( data, target_col,features_list=0, bins=10, data_test=0
 
             )
 
+            col_list = ['bins', 'samples_in_bin',
+                    'label_mean', 'samples_mean']
+
+            if has_test:
+                grouped = grouped_ret[0]
+                grouped_test = grouped_ret[1]
+
+                #grouped data
+                grouped.columns = col_list
+                grouped = grouped.reset_index().rename(
+                        {'index': 'feat_name'},
+                        axis=1
+                        )
+                grouped.feat_name = cols
+                total = grouped.samples_in_bin.sum()
+                grouped['samples_perc'] = grouped.samples_in_bin.apply(
+                        lambda x: x / total
+                        )
+                # grouped test data
+                grouped_test.columns = col_list
+                grouped_test = grouped_test.reset_index().rename(
+                        {'index': 'feat_name'},
+                        axis=1
+                        )
+                grouped_test.feat_name = cols
+                total = grouped_test.samples_in_bin.sum()
+                grouped_test['samples_perc'] = grouped_test.samples_in_bin.apply(
+                        lambda x: x / total
+                        )
+
+                grouped_final = grouped.merge(grouped_test,
+                                              on=['feat_name', 'bins'],
+                                              how='left',
+                                              suffixes=('_train', '_test'))
+                grouped_final['label_mean_diff'] = grouped_final.apply(
+                        lambda x: x.label_mean_train - x.label_mean_test,
+                        axis=1
+                        )
+                grouped_final['sample_perc_diff'] = grouped_final.apply(
+                        lambda x: x.samples_perc_train - x.samples_perc_test,
+                        axis=1
+                        )
+
+                bins_ret = pd.concat([bins_ret, grouped_final.drop_duplicates()])
+            else:
+                grouped = grouped_ret
+                grouped.columns = col_list
+                grouped = grouped.reset_index().rename(
+                        {'index': 'feat_name'}, axis=1
+                        )
+                grouped.feat_name = cols
+                total = grouped.samples_in_bin.sum()
+                grouped['samples_perc'] = grouped.samples_in_bin.apply(
+                        lambda x: x / total
+                        )
+                bins_ret = pd.concat([bins_ret, grouped])
+
 
     #add stats to excel
     if export_to_excel:
+        # add STATS sheet
         if has_test:
             stats = get_trend_stats(data=data, target_col=target_col, data_test=data_test)
-            stats.to_excel(xlsx.writer, sheet_name='STATS',index=False)
-            xlsx.writer.save()
         else:
             stats = get_trend_stats(data=data, target_col=target_col)
-            stats.to_excel(xlsx.writer, sheet_name='STATS',index=False)
-            xlsx.writer.save()
+        stats.to_excel(xlsx.writer, sheet_name='STATS',index=False)
 
+        # add BINS sheet
+        bins_ret.to_excel(xlsx.writer, sheet_name='BINS', index=False)
+
+        xlsx.writer.save()
 
         from IPython.display import FileLink,display
         display(FileLink(xlsx.path))
